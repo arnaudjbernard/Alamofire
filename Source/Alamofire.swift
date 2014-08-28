@@ -417,10 +417,10 @@ public struct Alamofire {
 
             if task is NSURLSessionUploadTask {
                 self.delegate = UploadTaskDelegate(task: task)
-            } else if task is NSURLSessionDownloadTask {
-                self.delegate = DownloadTaskDelegate(task: task)
             } else if task is NSURLSessionDataTask {
                 self.delegate = DataTaskDelegate(task: task)
+            } else if task is NSURLSessionDownloadTask {
+                self.delegate = DownloadTaskDelegate(task: task)
             } else {
                 self.delegate = TaskDelegate(task: task)
             }
@@ -448,6 +448,8 @@ public struct Alamofire {
                 uploadDelegate.uploadProgress = closure
             } else if let downloadDelegate = self.delegate as? DownloadTaskDelegate {
                 downloadDelegate.downloadProgress = closure
+            } else if let dataDelegate = self.delegate as? DataTaskDelegate {
+                dataDelegate.dataProgress = closure
             }
 
             return self
@@ -569,10 +571,14 @@ public struct Alamofire {
                 return self.mutableData
             }
 
+            private var expectedContentLength: Int64?
+
             var dataTaskDidReceiveResponse: ((NSURLSession!, NSURLSessionDataTask!, NSURLResponse!) -> (NSURLSessionResponseDisposition))?
             var dataTaskDidBecomeDownloadTask: ((NSURLSession!, NSURLSessionDataTask!) -> Void)?
             var dataTaskDidReceiveData: ((NSURLSession!, NSURLSessionDataTask!, NSData!) -> Void)?
             var dataTaskWillCacheResponse: ((NSURLSession!, NSURLSessionDataTask!, NSCachedURLResponse!) -> (NSCachedURLResponse))?
+
+            var dataProgress: ((bytesReceived: Int64, totalBytesReceived: Int64, totalBytesExpectedToReceive: Int64) -> Void)?
 
             override init(task: NSURLSessionTask) {
                 self.mutableData = NSMutableData()
@@ -583,6 +589,8 @@ public struct Alamofire {
 
             func URLSession(session: NSURLSession!, dataTask: NSURLSessionDataTask!, didReceiveResponse response: NSURLResponse!, completionHandler: ((NSURLSessionResponseDisposition) -> Void)!) {
                 var disposition: NSURLSessionResponseDisposition = .Allow
+
+                expectedContentLength = response.expectedContentLength
 
                 if self.dataTaskDidReceiveResponse != nil {
                     disposition = self.dataTaskDidReceiveResponse!(session, dataTask, response)
@@ -596,9 +604,14 @@ public struct Alamofire {
             }
 
             func URLSession(session: NSURLSession!, dataTask: NSURLSessionDataTask!, didReceiveData data: NSData!) {
+
                 self.dataTaskDidReceiveData?(session, dataTask, data)
 
                 self.mutableData.appendData(data)
+
+                if let expectedContentLength = dataTask?.response.expectedContentLength {
+                    self.dataProgress?(bytesReceived: Int64(data.length), totalBytesReceived: Int64(self.mutableData.length), totalBytesExpectedToReceive: expectedContentLength)
+                }
             }
 
             func URLSession(session: NSURLSession!, dataTask: NSURLSessionDataTask!, willCacheResponse proposedResponse: NSCachedURLResponse!, completionHandler: ((NSCachedURLResponse!) -> Void)!) {
